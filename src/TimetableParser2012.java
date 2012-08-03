@@ -27,7 +27,6 @@ import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.URL;
-import java.util.ArrayList;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -37,20 +36,24 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import org.htmlparser.Node;
+import org.htmlparser.NodeFilter;
+import org.htmlparser.Parser;
+import org.htmlparser.filters.TagNameFilter;
+import org.htmlparser.util.NodeList;
+import org.htmlparser.util.ParserException;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
-import org.htmlparser.*;
-import org.htmlparser.filters.TagNameFilter;
-import org.htmlparser.util.NodeList;
-
-public class TimetableParser {
+public class TimetableParser2012 {
 
 	public static String outfile = "cors.xml";
 	public static String moduleurl = "https://aces01.nus.edu.sg/cors/jsp/report/ModuleDetailedInfo.jsp?";
-
+	NodeFilter tdFilter = new TagNameFilter("td");
+	NodeFilter trFilter = new TagNameFilter("tr");
 	TimetableModule parseModule(String moduleCode) {
 		// debug
+		//moduleCode = "AR1101";
 		TimetableModule module = new TimetableModule();
 		module.code = moduleCode;
 		URL url;
@@ -74,16 +77,16 @@ public class TimetableParser {
 				// extract module description
 				// //
 				while ((line = reader.readLine()) != null) {
-					System.out.print(line);
 					if (line.contains("Correct as at")) {
 						int len = line.trim().length();
 						module.last_updated = line.trim().substring(4, len - 5);
+						System.out.println("last update"+ module.last_updated);
 					}
 
 					if (line.contains("tableframe")) {
 						reachTable = true;
 					}
-					if (line.contains("<td width=\"70%\"") && reachTable) {
+					if (line.contains("<td width=\"65%\"") && reachTable) {
 						ignore = false;
 					}
 
@@ -94,6 +97,7 @@ public class TimetableParser {
 					}
 
 					if (!ignore && line.trim().length() > 0) {
+
 						sb.append(line);
 						sb.append("\n");
 					}
@@ -101,7 +105,7 @@ public class TimetableParser {
 				}
 
 				Parser parser = Parser.createParser(sb.toString(), "utf8");
-				NodeFilter tdFilter = new TagNameFilter("td");
+			
 				NodeList tds = parser.extractAllNodesThatMatch(tdFilter);
 				
 				parseModuleInfo(tds, module);
@@ -110,12 +114,11 @@ public class TimetableParser {
 				// //
 				sb = new StringBuffer();
 				while ((line = reader.readLine()) != null) {
-					System.out.println(line);
 
 					if (line.contains("tableframe")) {
 						reachTable = true;
 					}
-					if (line.contains("<table width=\"80%\"") && reachTable) {
+					if (line.contains("<table width=\"100%\" border=\"1\" cellspacing=\"0\" cellpadding=\"0\"") && reachTable) {
 						ignore = false;
 					}
 
@@ -131,21 +134,11 @@ public class TimetableParser {
 
 				}
 				parser = Parser.createParser(sb.toString(), "utf8");
-				tds = parser.extractAllNodesThatMatch(tdFilter);
-				TimetableSlot slot = new TimetableSlot();
-				for (int i = 0; i < tds.size(); i++) {
-					// handle multiple session case
-					Node temp = tds.elementAt(i);
-					int offset = 0;
-					while (temp.getChildren().size() > offset) {
-						slot = parseSlot(temp, offset);
-						if (slot != null) {
-							module.addSlot(slot);
-						}
-						offset += 4;
-
-					}
-				}
+				tds = parser.extractAllNodesThatMatch(trFilter);
+				
+				try{
+					parseLecture(tds, module);
+				}catch (Exception e){}
 
 				// //
 				// extract tutorial slot
@@ -155,11 +148,11 @@ public class TimetableParser {
 					if (line.contains("tableframe")) {
 						reachTable = true;
 					}
-					if (line.contains("<table width=\"80%\"") && reachTable) {
+					if (line.contains("<table width=\"100%\" border=\"1\" cellspacing=\"0\" cellpadding=\"0\"") && reachTable) {
 						ignore = false;
 					}
 
-					if (line.contains("</div>")) {
+					if (line.contains("Footer.jsp")) {
 						ignore = true;
 						break;
 					}
@@ -171,23 +164,19 @@ public class TimetableParser {
 
 				}
 
-				System.out.println(sb.toString());
+				//System.out.println(sb.toString());
 				parser = Parser.createParser(sb.toString(), "utf8");
-				tds = parser.extractAllNodesThatMatch(tdFilter);
-				for (int i = 0; i < tds.size(); i++) {
-					// handle multiple session case
-					Node temp = tds.elementAt(i);
-					int offset = 0;
-					while (temp.getChildren().size() > offset) {
-						slot = parseSlot(temp, offset);
-						if (slot != null) {
-							module.addSlot(slot);
-						}
-						offset += 4;
+				NodeList trs = parser.extractAllNodesThatMatch(trFilter);
+				//printNodeList(trs);
+				
+				try{
+					parseTutorial(trs, module);
+				}catch (Exception e) {
 
-					}
 				}
-				System.out.println("succeed with "+tryAgain+ " try");
+				
+				
+				System.out.println("succeed with "+tryAgain+ " try" + module.toString());
 				
 				return module;
 
@@ -200,66 +189,120 @@ public class TimetableParser {
 		System.out.println("tried "+tryAgain+ " times, give up.");
 		return null;
 	}
+	
+	private void parseLecture(NodeList rows, TimetableModule module) {
+
+		for(int i = 1; i<rows.size(); i++) {
+			//printNodeList(rows.elementAt(i).getChildren());
+
+			try {
+				Parser parser = Parser.createParser(rows.elementAt(i).toHtml(), "utf8");
+				NodeList tds = parser.extractAllNodesThatMatch(tdFilter);
+				printNodeList2(tds);
+
+				if(tds.size() == 7) {
+					TimetableSlot slot = new TimetableSlot();
+					slot.slot = tds.elementAt(0).getFirstChild().toHtml().trim();
+					slot.type =  tds.elementAt(1).getFirstChild().toHtml().trim();
+
+					slot.day = tds.elementAt(3).getFirstChild().toHtml().trim();
+
+					slot.time_start = tds.elementAt(4).getFirstChild().toHtml().trim();
+					slot.time_end = tds.elementAt(5).getFirstChild().toHtml().trim();
+
+					slot.venue = tds.elementAt(6).getFirstChild().toHtml().trim();
+				
+					// line4:Week(s): EVERY WEEK.
+					String[] tokens = tds.elementAt(2).getFirstChild().toHtml().trim()
+							.split("&nbsp;");
+					slot.frequency = tokens[0].concat(" WEEK");
+					module.addSlot(slot);
+				}
+			} catch (ParserException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			
+		}
+		//System.exit(0);
+	}
+
+	private void parseTutorial(NodeList rows, TimetableModule module) {
+		//System.out.println("size"+rows.size());
+		for(int i = 1; i<rows.size(); i++) {
+			//printNodeList(rows.elementAt(i).getChildren());
+			//System.out.println("i:"+i);
+			try {
+				Parser parser = Parser.createParser(rows.elementAt(i).toHtml(), "utf8");
+				NodeList tds = parser.extractAllNodesThatMatch(tdFilter);
+				//printNodeList2(tds);
+				//System.out.println(tds.size());
+				if(tds.size() >= 8) {
+					TimetableSlot slot = new TimetableSlot();
+					slot.slot = tds.elementAt(0).getFirstChild().toHtml().trim();
+					slot.type =  tds.elementAt(1).getFirstChild().toHtml().trim();
+
+					slot.day = tds.elementAt(3).getFirstChild().toHtml().trim();
+
+					slot.time_start = tds.elementAt(4).getFirstChild().toHtml().trim();
+					slot.time_end = tds.elementAt(5).getFirstChild().toHtml().trim();
+
+					slot.venue = tds.elementAt(6).getFirstChild().toHtml().trim();
+				
+					// line4:Week(s): EVERY WEEK.
+					String[] tokens = tds.elementAt(2).getFirstChild().toHtml().trim()
+							.split("&nbsp;");
+					slot.frequency = tokens[0].concat(" WEEK");
+					module.addSlot(slot);
+					//System.out.println("["+i+"]"+slot);
+				}
+			} catch (ParserException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			
+			
+		}
+		//System.exit(0);
+	}
 
 	private void parseModuleInfo(NodeList data, TimetableModule module) {
 		// module.code = data.elementAt(0).getFirstChild().toHtml().trim();
 
 		// System.out.println("title "+module.title);
-		System.out.println("data "+data);
-		module.title = data.elementAt(2).getFirstChild().toHtml().trim();
+		//printNodeList(data);
+		module.title = data.elementAt(3).getFirstChild().toHtml().trim();
 
-		module.description = data.elementAt(4).getFirstChild().toHtml().trim();
-		module.examinable = data.elementAt(6).getFirstChild().toHtml().trim();
-		module.exam_date = data.elementAt(8).getFirstChild().toHtml().trim();
-		module.mc = data.elementAt(10).getFirstChild().toHtml().trim();
-		module.prereq = data.elementAt(12).getFirstChild().toHtml().trim();
-		module.preclude = data.elementAt(14).getFirstChild().toHtml().trim();
-		module.workload = data.elementAt(16).getFirstChild().toHtml().trim();
-		module.remarks = data.elementAt(18).getFirstChild().toHtml().trim();
+		module.description = data.elementAt(5).getFirstChild().toHtml().trim();
+		module.examinable = data.elementAt(7).getFirstChild().toHtml().trim();
+		module.exam_date = data.elementAt(9).getFirstChild().toHtml().trim();
+		module.mc = data.elementAt(11).getFirstChild().toHtml().trim();
+		module.prereq = data.elementAt(13).getFirstChild().toHtml().trim();
+		module.preclude = data.elementAt(15).getFirstChild().toHtml().trim();
+		module.workload = data.elementAt(17).getFirstChild().toHtml().trim();
+		module.remarks = data.elementAt(19).getFirstChild().toHtml().trim();
 
 	}
-
-	private TimetableSlot parseSlot(Node data, int offset) {
-		TimetableSlot slot = new TimetableSlot();
-		try {
-
-			// line 1:
-			// case1: LECTURE Class [SL1]
-			// case2: TUTORIAL Class [T10]
-			// case3: SECTIONAL TEACHING Class [S34]
-			// case4: LABORATORY Class [B01]
-			String[] tokens = data.getChildren().elementAt(0).toHtml().trim()
-					.split("Class");
-			slot.type = tokens[0].trim();
-			String temp = tokens[1].trim();
-			slot.slot = temp.substring(1, temp.length() - 1);
-
-			// line 2:MONDAY From 1200 hrs to 1400 hrs in LT25,
-			tokens = data.getChildren().elementAt(offset + 2).toHtml().trim()
-					.split(" ");
-			slot.day = tokens[0];
-			slot.time_start = tokens[2];
-			slot.time_end = tokens[5];
-
-			slot.venue = tokens[8].substring(0, tokens[8].length() - 1);
-
-			// line4:Week(s): EVERY WEEK.
-			tokens = data.getChildren().elementAt(offset + 4).toHtml().trim()
-					.split(" ");
-			slot.frequency = tokens[1].concat(" WEEK");
-		} catch (Exception e) {
-			// e.printStackTrace();
-			return null;
+	
+	private void printNodeList2(NodeList data) {
+		for (int i=0; i<data.size(); i++) {
+			System.out.println("["+i+"]" + data.elementAt(i).getFirstChild().toHtml().trim());
 		}
-		return slot;
 	}
+
+	private void printNodeList(NodeList data) {
+		for (int i=0; i<data.size(); i++) {
+			System.out.println("["+i+"]" + data.elementAt(i).toHtml().trim());
+		}
+	}
+
 
 	/**
 	 * @param args
 	 */
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
-		TimetableParser tparser = new TimetableParser();
+		TimetableParser2012 tparser = new TimetableParser2012();
 
 		boolean debug = false;
 		String baseurl = "https://aces01.nus.edu.sg/cors/jsp/report/ModuleInfoListing.jsp?fac_c=";
@@ -295,14 +338,14 @@ public class TimetableParser {
 						.println("Usage: java -jar ttParser.jar semester year "
 								+ "weekOneDay weekOneMonth weekMidtermBreakAfter adacemic_year");
 				System.out
-						.println("Eg: java -jar parser.jar 2 2011 10 1 6 2010/2011");
+						.println("Eg: java -jar parser.jar 1 2012 13 8 6 2012/2013");
 				
 				args = new String[6];
 				args[0] = "1";
 				args[1] = "2012";
 				args[2] = "13";
 				args[3] = "8";
-				args[4] = "7";
+				args[4] = "6";
 				args[5] = "2012/2013";
 
 			}
@@ -319,7 +362,7 @@ public class TimetableParser {
 			String line;
 			Element faculty;
 
-			TimetableParser.moduleurl = TimetableParser.moduleurl.concat(
+			TimetableParser2012.moduleurl = TimetableParser2012.moduleurl.concat(
 					"acad_y=").concat(args[5]).concat("&sem_c=")
 					.concat(args[0]).concat("&mod_c=");
 			for (int i = 0; i < urls.length; i++) {

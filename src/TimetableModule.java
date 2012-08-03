@@ -133,7 +133,7 @@ public class TimetableModule {
 		"prereq: "+ prereq +"\n"+
 		"workload: " + workload +"\n"+
 		"remarks: " + remarks +"\n"+
-		"last_update: "+ last_updated );
+		"last_update: "+ last_updated + "\ntutorial slots:");
 		
 		for(int i=0; i<slots.size(); i++) {
 			sb.append(slots.get(i).toString());
