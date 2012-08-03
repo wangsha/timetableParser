@@ -1,6 +1,6 @@
 This is a java parser for nus timetable
 A runnable jar file is in runnable/
 
-Usage: java -jar ttParser.jar semester year weekOneDay weekOneMonth weekMidtermBreakAfter adacemic_year
+Usage: java -jar parser2012.jar semester year weekOneDay weekOneMonth weekMidtermBreakAfter adacemic_year
 
-Example: java -jar parser.jar 2 2011 10 1 6 2010/2011
+Example: java -jar parser2012.jar 2 2012 10 1 6 2012/2013
